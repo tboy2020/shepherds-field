@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#9ad0ff">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<title>David's Field — Kingdom 3D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito:wght@700;800&display=swap" rel="stylesheet">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;overflow:hidden;background:#9ad0ff;font-family:'Nunito',system-ui,sans-serif;}
+  body{position:fixed;inset:0;-webkit-user-select:none;user-select:none;touch-action:none;}
+  #c{position:absolute;inset:0;display:block;}
+  .ui{position:absolute;z-index:10;}
+  /* start overlay */
+  #start{position:absolute;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;
+    background:radial-gradient(circle at 50% 30%,#3D2766,#1B1030);color:#FFF7E6;}
+  #start h1{font-family:'Baloo 2';font-size:clamp(34px,9vw,56px);color:#FFD86B;text-shadow:0 3px 0 #C9962A,0 6px 18px rgba(0,0,0,.4);}
+  #start .verse{font-style:italic;color:#E7D9FF;max-width:520px;margin:14px;font-size:clamp(16px,4.4vw,20px);line-height:1.45;}
+  #start .ref{font-family:'Baloo 2';color:#F4C542;letter-spacing:.5px;text-transform:uppercase;font-size:14px;}
+  .btn{font-family:'Baloo 2';font-weight:800;font-size:clamp(18px,5.4vw,24px);color:#1B1030;
+    background:linear-gradient(180deg,#FFD86B,#F4C542);border:none;border-radius:22px;padding:16px 30px;margin-top:18px;
+    box-shadow:0 6px 0 #C9962A,0 8px 24px rgba(0,0,0,.35);cursor:pointer;}
+  .btn:active{transform:translateY(4px);box-shadow:0 2px 0 #C9962A;}
+  .hint{color:#C9B8E8;font-size:14px;margin-top:14px;max-width:440px;line-height:1.4;}
+  /* joystick */
+  #stick{position:absolute;left:22px;bottom:30px;width:120px;height:120px;border-radius:50%;
+    background:rgba(255,255,255,.18);border:3px solid rgba(255,255,255,.5);z-index:20;touch-action:none;}
+  #knob{position:absolute;left:35px;top:35px;width:50px;height:50px;border-radius:50%;
+    background:rgba(255,255,255,.85);box-shadow:0 3px 10px rgba(0,0,0,.3);}
+  #caption{position:absolute;left:50%;top:18px;transform:translateX(-50%);z-index:20;
+    background:rgba(27,16,48,.55);color:#FFF7E6;font-family:'Baloo 2';font-weight:700;
+    padding:8px 18px;border-radius:30px;font-size:clamp(14px,4vw,18px);opacity:0;transition:opacity .5s;text-align:center;max-width:90vw;}
+  #look{position:absolute;right:0;top:0;width:55%;height:100%;z-index:15;}
+  #home{position:absolute;right:14px;top:14px;z-index:20;width:46px;height:46px;border-radius:50%;
+    background:rgba(27,16,48,.45);border:2px solid rgba(255,255,255,.5);color:#fff;font-size:20px;display:flex;align-items:center;justify-content:center;}
+  .deskhint{position:absolute;left:50%;bottom:8px;transform:translateX(-50%);z-index:20;color:rgba(255,255,255,.7);font-size:12px;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="start">
+  <div style="font-size:64px">🐑</div>
+  <h1>David's Field</h1>
+  <p class="verse">&ldquo;The LORD is my shepherd; I shall not want. He maketh me to lie down in green pastures: he leadeth me beside the still waters.&rdquo;</p>
+  <p class="ref">Psalm 23:1-2</p>
+  <button class="btn" id="enter">Enter the Field ▶</button>
+  <p class="hint">Walk with the joystick. Drag the right side to look around. Find the sheep, the still waters, and the fold.</p>
+</div>
+<div id="caption" class="ui"></div>
+<div id="stick" class="ui" style="display:none"><div id="knob"></div></div>
+<div id="look" class="ui" style="display:none"></div>
+<div id="home" class="ui" style="display:none">⤺</div>
+<div id="deskhint" class="deskhint ui" style="display:none">WASD / arrows to walk · drag to look</div>
+
+<script src="three.min.js"></script>
+<script>
+"use strict";
+(function(){
+  var startEl=document.getElementById('start');
+  document.getElementById('enter').addEventListener('click',function(){ startEl.style.display='none'; init(); });
+
+  var scene,camera,renderer,clock,david,sheepList=[],trees=[],pond,fold;
+  var input={x:0,y:0}, keys={}, camYaw=0.6, camDist=9, camHeight=5.2, walkT=0;
+  var FIELD=58;
+
+  function init(){
+    var canvas=document.getElementById('c');
+    renderer=new THREE.WebGLRenderer({canvas:canvas,antialias:true});
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+    renderer.setSize(window.innerWidth,window.innerHeight);
+    renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+
+    scene=new THREE.Scene();
+    scene.fog=new THREE.Fog(0xd9ecff,55,120);
+    camera=new THREE.PerspectiveCamera(55,window.innerWidth/window.innerHeight,0.1,400);
+    clock=new THREE.Clock();
+
+    addSky();
+    addLights();
+    addGround();
+    addHills();
+    addPond();
+    addFold();
+    for(var i=0;i<16;i++) addTree();
+    for(var s=0;s<10;s++) addSheep();
+    david=makeDavid(); david.position.set(0,0,8); scene.add(david);
+
+    setupControls();
+    window.addEventListener('resize',onResize);
+    document.getElementById('stick').style.display='block';
+    document.getElementById('look').style.display='block';
+    document.getElementById('home').style.display='flex';
+    if(!('ontouchstart' in window)) document.getElementById('deskhint').style.display='block';
+    animate();
+  }
+
+  function addSky(){
+    var geo=new THREE.SphereGeometry(300,32,15);
+    var mat=new THREE.ShaderMaterial({
+      side:THREE.BackSide,
+      uniforms:{ top:{value:new THREE.Color(0x7fb8ff)}, bot:{value:new THREE.Color(0xfde6c4)}, off:{value:30.0}, exp:{value:0.7} },
+      vertexShader:'varying vec3 vP; void main(){ vP=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+      fragmentShader:'uniform vec3 top; uniform vec3 bot; uniform float off; uniform float exp; varying vec3 vP; void main(){ float h=normalize(vP+vec3(0.0,off,0.0)).y; gl_FragColor=vec4(mix(bot,top,max(pow(max(h,0.0),exp),0.0)),1.0); }'
+    });
+    scene.add(new THREE.Mesh(geo,mat));
+  }
+  function addLights(){
+    var hemi=new THREE.HemisphereLight(0xcfe8ff,0x9bbf6a,0.85); scene.add(hemi);
+    var sun=new THREE.DirectionalLight(0xfff2d6,1.05);
+    sun.position.set(30,46,18); sun.castShadow=true;
+    sun.shadow.mapSize.width=1024; sun.shadow.mapSize.height=1024;
+    var d=60; sun.shadow.camera.left=-d; sun.shadow.camera.right=d; sun.shadow.camera.top=d; sun.shadow.camera.bottom=-d;
+    sun.shadow.camera.near=1; sun.shadow.camera.far=160; sun.shadow.bias=-0.0004;
+    scene.add(sun);
+  }
+  function addGround(){
+    var geo=new THREE.PlaneGeometry(400,400,1,1);
+    var mat=new THREE.MeshStandardMaterial({color:0x88bf5a,roughness:1,metalness:0});
+    var m=new THREE.Mesh(geo,mat); m.rotation.x=-Math.PI/2; m.receiveShadow=true; scene.add(m);
+    // patches of darker grass for texture
+    for(var i=0;i<40;i++){
+      var r=2+Math.random()*5;
+      var p=new THREE.Mesh(new THREE.CircleGeometry(r,8), new THREE.MeshStandardMaterial({color:0x7bb24f,roughness:1}));
+      p.rotation.x=-Math.PI/2; p.position.set((Math.random()-0.5)*110,0.01,(Math.random()-0.5)*110); scene.add(p);
+    }
+  }
+  function addHills(){
+    for(var i=0;i<7;i++){
+      var rad=18+Math.random()*16;
+      var h=new THREE.Mesh(new THREE.SphereGeometry(rad,16,12), new THREE.MeshStandardMaterial({color:0x6fa84b,roughness:1}));
+      var ang=Math.random()*Math.PI*2, dist=70+Math.random()*40;
+      h.position.set(Math.cos(ang)*dist, -rad*0.55, Math.sin(ang)*dist); h.scale.y=0.6; scene.add(h);
+    }
+  }
+  function addPond(){
+    pond=new THREE.Mesh(new THREE.CircleGeometry(7,32), new THREE.MeshStandardMaterial({color:0x5fb6e0,roughness:0.3,metalness:0.1}));
+    pond.rotation.x=-Math.PI/2; pond.position.set(-18,0.05,-10); scene.add(pond);
+    var rim=new THREE.Mesh(new THREE.RingGeometry(7,8.2,32), new THREE.MeshStandardMaterial({color:0x6a8a3a,roughness:1}));
+    rim.rotation.x=-Math.PI/2; rim.position.set(-18,0.04,-10); scene.add(rim);
+  }
+  function makePost(x,z){ var p=new THREE.Mesh(new THREE.CylinderGeometry(0.18,0.2,2.2,6), new THREE.MeshStandardMaterial({color:0x8a5a2a,roughness:1})); p.position.set(x,1.1,z); p.castShadow=true; return p; }
+  function makeRail(x,z,len,rot){ var r=new THREE.Mesh(new THREE.BoxGeometry(len,0.18,0.18), new THREE.MeshStandardMaterial({color:0x9b6b3a,roughness:1})); r.position.set(x,1.4,z); r.rotation.y=rot; r.castShadow=true; return r; }
+  function addFold(){
+    fold=new THREE.Group();
+    var cx=20, cz=-14, S=9;
+    // straw floor
+    var floor=new THREE.Mesh(new THREE.CircleGeometry(S*0.7,24), new THREE.MeshStandardMaterial({color:0xcaa46a,roughness:1}));
+    floor.rotation.x=-Math.PI/2; floor.position.set(cx,0.03,cz); scene.add(floor);
+    // posts around, with a gate gap at front
+    for(var i=-1;i<=1;i++){
+      fold.add(makePost(cx+i*(S/2), cz-S/2)); // back
+      fold.add(makePost(cx-S/2, cz+i*(S/2))); // left
+      fold.add(makePost(cx+S/2, cz+i*(S/2))); // right
+    }
+    fold.add(makeRail(cx, cz-S/2, S, 0));
+    fold.add(makeRail(cx-S/2, cz, S, Math.PI/2));
+    fold.add(makeRail(cx+S/2, cz, S, Math.PI/2));
+    // shelter roof at back
+    var roof=new THREE.Mesh(new THREE.ConeGeometry(3.4,2.2,4), new THREE.MeshStandardMaterial({color:0x9b6b3a,roughness:1}));
+    roof.position.set(cx,3.1,cz-S/2+1); roof.rotation.y=Math.PI/4; roof.castShadow=true; fold.add(roof);
+    scene.add(fold);
+    fold.userData={cx:cx,cz:cz};
+  }
+  function addTree(){
+    var ang=Math.random()*Math.PI*2, dist=14+Math.random()*40;
+    var x=Math.cos(ang)*dist, z=Math.sin(ang)*dist;
+    if(Math.abs(x)<5 && Math.abs(z-8)<5) return;
+    var g=new THREE.Group();
+    var trunk=new THREE.Mesh(new THREE.CylinderGeometry(0.3,0.45,2.4,6), new THREE.MeshStandardMaterial({color:0x7a5230,roughness:1}));
+    trunk.position.y=1.2; trunk.castShadow=true; g.add(trunk);
+    var fol=new THREE.Mesh(new THREE.SphereGeometry(1.8+Math.random()*0.7,8,6), new THREE.MeshStandardMaterial({color:0x4f8f3a,roughness:1}));
+    fol.position.y=3.4; fol.scale.y=1.1; fol.castShadow=true; g.add(fol);
+    g.position.set(x,0,z); scene.add(g); trees.push(g);
+  }
+  function makeSheep(){
+    var g=new THREE.Group();
+    var wool=new THREE.MeshStandardMaterial({color:0xFFF7E6,roughness:1});
+    var dark=new THREE.MeshStandardMaterial({color:0x3a3030,roughness:1});
+    var body=new THREE.Mesh(new THREE.SphereGeometry(0.62,10,8),wool); body.position.y=0.78; body.scale.set(1.3,1,1.05); body.castShadow=true; g.add(body);
+    var head=new THREE.Mesh(new THREE.SphereGeometry(0.3,8,6),dark); head.position.set(0.78,0.92,0); head.scale.set(1,1.15,1); g.add(head);
+    var ear=new THREE.Mesh(new THREE.SphereGeometry(0.1,6,5),dark); ear.position.set(0.74,1.12,0.18); g.add(ear);
+    [[-0.4,0.32],[0.4,0.32],[-0.4,-0.32],[0.4,-0.32]].forEach(function(p){
+      var leg=new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.08,0.6,5),dark); leg.position.set(p[0],0.3,p[1]); g.add(leg);
+    });
+    return g;
+  }
+  function addSheep(){
+    var g=makeSheep();
+    g.position.set((Math.random()-0.5)*44,0,(Math.random()-0.5)*44);
+    scene.add(g);
+    sheepList.push({m:g, tx:g.position.x, tz:g.position.z, sp:0.7+Math.random()*0.5, ph:Math.random()*6, wait:Math.random()*3});
+  }
+  function makeDavid(){
+    var g=new THREE.Group();
+    var skin=new THREE.MeshStandardMaterial({color:0xE8B894,roughness:1});
+    var tunic=new THREE.MeshStandardMaterial({color:0xF4C542,roughness:1});
+    var hair=new THREE.MeshStandardMaterial({color:0x5A3A22,roughness:1});
+    var belt=new THREE.MeshStandardMaterial({color:0x8A5A2A,roughness:1});
+    var body=new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.62,1.5,10),tunic); body.position.y=1.35; body.castShadow=true; g.add(body);
+    var beltRing=new THREE.Mesh(new THREE.TorusGeometry(0.55,0.08,6,12),belt); beltRing.rotation.x=Math.PI/2; beltRing.position.y=0.95; g.add(beltRing);
+    var head=new THREE.Mesh(new THREE.SphereGeometry(0.42,12,10),skin); head.position.y=2.35; head.castShadow=true; g.add(head);
+    var cap=new THREE.Mesh(new THREE.SphereGeometry(0.45,12,8,0,Math.PI*2,0,Math.PI/2),hair); cap.position.y=2.42; g.add(cap);
+    // arms
+    var armL=new THREE.Mesh(new THREE.CylinderGeometry(0.13,0.13,1.1,6),skin); armL.position.set(-0.62,1.5,0); armL.rotation.z=0.3; g.add(armL); g.userData_armL=armL;
+    var armR=new THREE.Mesh(new THREE.CylinderGeometry(0.13,0.13,1.1,6),skin); armR.position.set(0.62,1.5,0); armR.rotation.z=-0.3; g.add(armR); g.userData_armR=armR;
+    // legs
+    var legL=new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.16,1.0,6),belt); legL.position.set(-0.22,0.5,0); g.add(legL); g.userData_legL=legL;
+    var legR=new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.16,1.0,6),belt); legR.position.set(0.22,0.5,0); g.add(legR); g.userData_legR=legR;
+    // staff
+    var staff=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,2.6,6), new THREE.MeshStandardMaterial({color:0x9b6b3a,roughness:1}));
+    staff.position.set(0.78,1.3,0.1); staff.rotation.z=-0.12; g.add(staff);
+    return g;
+  }
+
+  function setupControls(){
+    var stick=document.getElementById('stick'), knob=document.getElementById('knob');
+    var sid=null, sc={x:60,y:60};
+    function sStart(e){ e.preventDefault(); var t=e.changedTouches?e.changedTouches[0]:e; sid=(e.changedTouches?t.identifier:'m'); var r=stick.getBoundingClientRect(); sc={x:r.left+r.width/2,y:r.top+r.height/2}; sMove(e); }
+    function sMove(e){ if(sid===null) return; var t; if(e.changedTouches){ for(var i=0;i<e.changedTouches.length;i++){ if(e.changedTouches[i].identifier===sid){ t=e.changedTouches[i]; } } if(!t) return; } else { t=e; } e.preventDefault();
+      var dx=t.clientX-sc.x, dy=t.clientY-sc.y, mag=Math.sqrt(dx*dx+dy*dy), max=46; if(mag>max){ dx=dx/mag*max; dy=dy/mag*max; }
+      knob.style.left=(35+dx)+'px'; knob.style.top=(35+dy)+'px'; input.x=dx/max; input.y=-dy/max; }
+    function sEnd(e){ sid=null; knob.style.left='35px'; knob.style.top='35px'; input.x=0; input.y=0; }
+    stick.addEventListener('touchstart',sStart,{passive:false}); stick.addEventListener('touchmove',sMove,{passive:false}); stick.addEventListener('touchend',sEnd); stick.addEventListener('touchcancel',sEnd);
+    stick.addEventListener('mousedown',function(e){ sStart(e); document.addEventListener('mousemove',sMove); document.addEventListener('mouseup',function up(){ sEnd(); document.removeEventListener('mousemove',sMove); document.removeEventListener('mouseup',up); }); });
+
+    // look drag
+    var look=document.getElementById('look'), lid=null, lx=0;
+    function lStart(e){ var t=e.changedTouches?e.changedTouches[0]:e; lid=e.changedTouches?t.identifier:'m'; lx=t.clientX; }
+    function lMove(e){ if(lid===null) return; var t; if(e.changedTouches){ for(var i=0;i<e.changedTouches.length;i++){ if(e.changedTouches[i].identifier===lid) t=e.changedTouches[i]; } if(!t) return; } else t=e; camYaw-=(t.clientX-lx)*0.005; lx=t.clientX; }
+    function lEnd(){ lid=null; }
+    look.addEventListener('touchstart',lStart,{passive:false}); look.addEventListener('touchmove',lMove,{passive:false}); look.addEventListener('touchend',lEnd);
+    look.addEventListener('mousedown',function(e){ lStart(e); document.addEventListener('mousemove',lMove); document.addEventListener('mouseup',function up(){ lEnd(); document.removeEventListener('mousemove',lMove); document.removeEventListener('mouseup',up); }); });
+
+    document.addEventListener('keydown',function(e){ keys[e.key.toLowerCase()]=true; });
+    document.addEventListener('keyup',function(e){ keys[e.key.toLowerCase()]=false; });
+    document.getElementById('home').addEventListener('click',function(){ david.position.set(0,0,8); });
+  }
+
+  var lastCap='';
+  function caption(txt){ if(txt===lastCap) return; lastCap=txt; var c=document.getElementById('caption'); if(!txt){ c.style.opacity='0'; return; } c.textContent=txt; c.style.opacity='1'; }
+
+  function onResize(){ camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth,window.innerHeight); }
+
+  function animate(){
+    requestAnimationFrame(animate);
+    var dt=Math.min(clock.getDelta(),0.05);
+    // keyboard input
+    var kx=0,ky=0;
+    if(keys['w']||keys['arrowup']) ky+=1; if(keys['s']||keys['arrowdown']) ky-=1;
+    if(keys['d']||keys['arrowright']) kx+=1; if(keys['a']||keys['arrowleft']) kx-=1;
+    if(keys['q']) camYaw+=1.5*dt; if(keys['e']) camYaw-=1.5*dt;
+    var ix=input.x+kx, iy=input.y+ky;
+    var mag=Math.sqrt(ix*ix+iy*iy); if(mag>1){ ix/=mag; iy/=mag; }
+    var moving=mag>0.08;
+    // move david relative to camera yaw
+    var fX=-Math.sin(camYaw), fZ=-Math.cos(camYaw);
+    var rX=Math.cos(camYaw), rZ=-Math.sin(camYaw);
+    var mX=fX*iy+rX*ix, mZ=fZ*iy+rZ*ix;
+    var speed=6.2;
+    if(moving){
+      david.position.x+=mX*speed*dt; david.position.z+=mZ*speed*dt;
+      var rad=Math.sqrt(david.position.x*david.position.x+david.position.z*david.position.z);
+      if(rad>FIELD){ david.position.x*=FIELD/rad; david.position.z*=FIELD/rad; }
+      david.rotation.y=Math.atan2(mX,mZ);
+      walkT+=dt*9;
+      david.position.y=Math.abs(Math.sin(walkT))*0.12;
+      if(david.userData_legL){ david.userData_legL.rotation.x=Math.sin(walkT)*0.6; david.userData_legR.rotation.x=-Math.sin(walkT)*0.6; david.userData_armL.rotation.x=-Math.sin(walkT)*0.5; david.userData_armR.rotation.x=Math.sin(walkT)*0.5; }
+    } else {
+      david.position.y+=(0-david.position.y)*0.2;
+      if(david.userData_legL){ david.userData_legL.rotation.x*=0.8; david.userData_legR.rotation.x*=0.8; david.userData_armL.rotation.x*=0.8; david.userData_armR.rotation.x*=0.8; }
+    }
+    // sheep wander
+    var t=clock.elapsedTime;
+    for(var i=0;i<sheepList.length;i++){ var s=sheepList[i], m=s.m;
+      var dx=s.tx-m.position.x, dz=s.tz-m.position.z, d=Math.sqrt(dx*dx+dz*dz);
+      if(d<0.5){ s.wait-=dt; if(s.wait<0){ s.tx=(Math.random()-0.5)*48; s.tz=(Math.random()-0.5)*48; s.wait=1+Math.random()*4; } }
+      else { m.position.x+=dx/d*s.sp*dt; m.position.z+=dz/d*s.sp*dt; m.rotation.y=Math.atan2(dx,dz)-Math.PI/2; m.position.y=Math.abs(Math.sin(t*6+s.ph))*0.05; }
+    }
+    // camera follow
+    var cx=david.position.x+Math.sin(camYaw)*camDist;
+    var cz=david.position.z+Math.cos(camYaw)*camDist;
+    camera.position.x+=(cx-camera.position.x)*0.12;
+    camera.position.z+=(cz-camera.position.z)*0.12;
+    camera.position.y+=(david.position.y+camHeight-camera.position.y)*0.12;
+    camera.lookAt(david.position.x,david.position.y+1.6,david.position.z);
+    // proximity captions
+    var dp=Math.hypot(david.position.x-pond.position.x,david.position.z-pond.position.z);
+    var df=Math.hypot(david.position.x-fold.userData.cx,david.position.z-fold.userData.cz);
+    var nearSheep=false; for(var k=0;k<sheepList.length;k++){ if(Math.hypot(david.position.x-sheepList[k].m.position.x,david.position.z-sheepList[k].m.position.z)<3){ nearSheep=true; break; } }
+    if(df<7) caption('The fold — lead your sheep home for the night.');
+    else if(dp<11) caption('He leadeth me beside the still waters.');
+    else if(nearSheep) caption('The sheep know your voice, shepherd.');
+    else caption('');
+
+    renderer.render(scene,camera);
+  }
+})();
+</script>
+<script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){});});}</script>
+</body>
+</html>
